@@ -1,5 +1,5 @@
 import express from "express"
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
 import cors from "cors"
 
@@ -44,6 +44,28 @@ app.post('/add-book',async(req, res)=>{
 })
 
 app.get('/book', async(req, res)=>{
+  const category = req.query.category
+
+  // If the user picked a category, only return books from that category.
+  if (category) {
+    const result = await bookCollection.find({ category: category }).toArray()
+    res.send(result)
+    return
+  }
+
+  // No category selected, so return every book.
   const result = await bookCollection.find().toArray()
   res.send(result)
+})
+
+app.get('/categories', async(req, res)=>{
+  // distinct() gives us each category name only once.
+  const categories = await bookCollection.distinct('category')
+  res.send(categories.sort())
+})
+
+app.get('/book/:id',async(req, res)=>{
+  const {id} = req.params
+  const result = await bookCollection.findOne({_id: new ObjectId(id)})
+  res.send(result);
 })
