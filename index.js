@@ -24,6 +24,7 @@ export async function connectToMongoDB() {
 const mongoClient = await connectToMongoDB();
 const db = mongoClient.db("booknook")
 const bookCollection = db.collection('book')
+const borrowCollection = db.collection("my-borrows");
 
 //http://localhost:5000/add-book
 
@@ -69,3 +70,33 @@ app.get('/book/:id',async(req, res)=>{
   const result = await bookCollection.findOne({_id: new ObjectId(id)})
   res.send(result);
 })
+
+app.post("/my-borrows", async (req, res) => {
+  const data = req.body;
+
+  // Check if user already borrowed this book
+  const alreadyBorrowed = await borrowCollection.findOne({
+    bookId: data.bookId,
+    userEmail: data.userEmail,
+  });
+
+  if (alreadyBorrowed) {
+    return res.status(409).send({
+      message: "You have already borrowed this book!",
+    });
+  }
+
+  // Save borrow information
+  const result = await borrowCollection.insertOne(data);
+
+  console.log(result);
+
+  res.send(result);
+});
+
+app.get('/my-borrows', async (req, res)=>{
+  const email = req.query.email;
+  const books = await borrowCollection.find({userEmail: email}).toArray();
+  res.send(books)
+})
+
