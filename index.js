@@ -36,7 +36,7 @@ app.listen(PORT, ()=>{
     console.log(`Server is running at ${PORT}`)
 })
 
-
+//book add
 app.post('/add-book',async(req, res)=>{
   const data = req.body
  const result = await bookCollection.insertOne(data)
@@ -47,30 +47,31 @@ app.post('/add-book',async(req, res)=>{
 app.get('/book', async(req, res)=>{
   const category = req.query.category
 
-  // If the user picked a category, only return books from that category.
   if (category) {
     const result = await bookCollection.find({ category: category }).toArray()
     res.send(result)
     return
   }
 
-  // No category selected, so return every book.
   const result = await bookCollection.find().toArray()
   res.send(result)
 })
 
 app.get('/categories', async(req, res)=>{
-  // distinct() gives us each category name only once.
   const categories = await bookCollection.distinct('category')
   res.send(categories.sort())
 })
 
+
+//book details
 app.get('/book/:id',async(req, res)=>{
   const {id} = req.params
   const result = await bookCollection.findOne({_id: new ObjectId(id)})
   res.send(result);
 })
 
+
+//book borrow
 app.post("/my-borrows", async (req, res) => {
   const data = req.body;
 
@@ -94,9 +95,45 @@ app.post("/my-borrows", async (req, res) => {
   res.send(result);
 });
 
+//my borrow book 
 app.get('/my-borrows', async (req, res)=>{
   const email = req.query.email;
   const books = await borrowCollection.find({userEmail: email}).toArray();
   res.send(books)
 })
 
+
+//my books
+app.get('/my-books', async(req, res)=>{
+  const email = req.query.email;
+
+  const result = await bookCollection.find({userEmail:email}).toArray();
+
+  res.send(result)
+})
+
+//delete book
+app.delete("/my-books/:id", async (req, res) => {
+  const id = req.params.id;
+  const email = req.query.email;
+
+  const result = await bookCollection.deleteOne({
+    _id: new ObjectId(id),
+    userEmail: email,
+  });
+
+  res.send(result);
+});
+
+
+// Update My Book
+app.put("/my-books/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await bookCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: req.body }
+  );
+
+  res.send(result);
+});
