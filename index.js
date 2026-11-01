@@ -25,6 +25,7 @@ const mongoClient = await connectToMongoDB();
 const db = mongoClient.db("booknook")
 const bookCollection = db.collection('book')
 const borrowCollection = db.collection("my-borrows");
+const userCollection = db.collection("user");
 
 //http://localhost:5000/add-book
 
@@ -144,3 +145,12 @@ app.put("/my-books/:id", async (req, res) => {
 
   res.send(result);
 });
+
+//user profile
+app.get('/user-profile', async(req, res)=>{
+  const email = req.query.email;
+
+  const result = await userCollection.findOne({email:email})
+
+  res.send(result)
+})
