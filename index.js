@@ -72,36 +72,176 @@ app.get('/book/:id',async(req, res)=>{
 })
 
 
+
 //book borrow
 app.post("/my-borrows", async (req, res) => {
-  const data = req.body;
+  try {
+    const data = req.body;
 
-  // Check if user already borrowed this book
-  const alreadyBorrowed = await borrowCollection.findOne({
-    bookId: data.bookId,
-    userEmail: data.userEmail,
-  });
+    const alreadyBorrowed = await borrowCollection.findOne({
+      bookId: data.bookId,
+      userEmail: data.userEmail,
+      returned: { $ne: true },
+    });
 
-  if (alreadyBorrowed) {
-    return res.status(409).send({
-      message: "You have already borrowed this book!",
+    if (alreadyBorrowed) {
+      return res.status(409).send({
+        message: "You have already borrowed this book!",
+      });
+    }
+
+    const book = await bookCollection.findOne({
+      _id: new ObjectId(data.bookId),
+    });
+
+    if (!book) {
+      return res.status(404).send({
+        message: "Book not found!",
+      });
+    }
+
+    if (book.availableCopies <= 0) {
+      return res.status(400).send({
+        message: "No copies available!",
+      });
+    }
+
+    const updateBook = await bookCollection.updateOne(
+      {
+        _id: new ObjectId(data.bookId),
+        availableCopies: { $gt: 0 },
+      },
+      {
+        $inc: { availableCopies: -1 },
+      }
+    );
+
+    if (updateBook.modifiedCount === 0) {
+      return res.status(400).send({
+        message: "No copies available!",
+      });
+    }
+
+    const borrowData = {
+      ...data,
+      borrowDate: data.borrowDate || new Date().toISOString(),
+      returnDate: null,
+      returned: false,
+      active: true,
+    };
+
+    const result = await borrowCollection.insertOne(borrowData);
+
+    res.send({
+      message: "Book borrowed successfully!",
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Borrow error:", error);
+    res.status(500).send({
+      message: "Failed to borrow book",
     });
   }
-
-  // Save borrow information
-  const result = await borrowCollection.insertOne(data);
-
-  console.log(result);
-
-  res.send(result);
 });
 
-//my borrow book 
-app.get('/my-borrows', async (req, res)=>{
-  const email = req.query.email;
-  const books = await borrowCollection.find({userEmail: email}).toArray();
-  res.send(books)
-})
+
+// My active borrowed books
+app.get("/my-borrows", async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    const books = await borrowCollection
+      .find({
+        userEmail: email,
+        returned: { $ne: true },
+      })
+      .sort({ borrowDate: -1 })
+      .toArray();
+
+    res.send(books);
+  } catch (error) {
+    console.error("My borrows error:", error);
+    res.status(500).send({
+      message: "Failed to get borrowed books",
+    });
+  }
+});
+
+// Return borrowed book
+app.put("/my-borrows/:id/return", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { email } = req.body;
+
+    const borrow = await borrowCollection.findOne({
+      _id: new ObjectId(id),
+      userEmail: email,
+      returned: { $ne: true },
+    });
+
+    if (!borrow) {
+      return res.status(404).send({
+        message: "Borrowed book not found!",
+      });
+    }
+
+    const result = await borrowCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+        userEmail: email,
+        returned: { $ne: true },
+      },
+      {
+        $set: {
+          returned: true,
+          active: false,
+          returnDate: new Date().toISOString(),
+        },
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(400).send({
+        message: "Book could not be returned!",
+      });
+    }
+
+    await bookCollection.updateOne(
+      { _id: new ObjectId(borrow.bookId) },
+      {
+        $inc: { availableCopies: 1 },
+      }
+    );
+
+    res.send({
+      message: "Book returned successfully!",
+    });
+  } catch (error) {
+    console.error("Return book error:", error);
+    res.status(500).send({
+      message: "Failed to return book",
+    });
+  }
+});
+
+// Borrowed books count
+app.get("/borrowed-count", async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    const count = await borrowCollection.countDocuments({
+      userEmail: email,
+      returned: { $ne: true },
+    });
+
+    res.send({ count });
+  } catch (error) {
+    console.error("Borrowed count error:", error);
+    res.status(500).send({
+      message: "Failed to get borrowed count",
+    });
+  }
+});
 
 
 //my books
