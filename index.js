@@ -154,3 +154,15 @@ app.get('/user-profile', async(req, res)=>{
 
   res.send(result)
 })
+
+
+
+app.get("/popular-books", async (req, res) => {
+  const result = await bookCollection
+    .find()
+    .sort({ rating: -1 })
+    .limit(8)
+    .toArray();
+
+  res.send(result);
+});
