@@ -129,10 +129,17 @@ app.delete("/my-books/:id", async (req, res) => {
 // Update My Book
 app.put("/my-books/:id", async (req, res) => {
   const id = req.params.id;
+  const email = req.query.email
 
   const result = await bookCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: req.body }
+    {
+       _id: new ObjectId(id),
+      userEmail: email,
+     },
+
+    { 
+      $set: req.body,
+     }
   );
 
   res.send(result);
