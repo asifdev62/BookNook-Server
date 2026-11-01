@@ -155,6 +155,25 @@ app.get('/user-profile', async(req, res)=>{
   res.send(result)
 })
 
+//update profile
+app.put("/user-profile", async (req, res) => {
+  const email = req.query.email;
+  const { name, image, phone } = req.body;
+
+  const result = await userCollection.updateOne(
+    { email: email },
+    {
+      $set: {
+        name: name,
+        image: image,
+        phone: phone,
+      },
+    }
+  );
+
+  res.send(result);
+});
+
 
 
 app.get("/popular-books", async (req, res) => {
