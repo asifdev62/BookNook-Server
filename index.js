@@ -552,3 +552,5 @@ app.get("/popular-books", async (req, res) => {
 
   res.send(result);
 });
+
+export default app
