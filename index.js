@@ -27,6 +27,72 @@ const bookCollection = db.collection('book')
 const borrowCollection = db.collection("my-borrows");
 const userCollection = db.collection("user");
 
+// Categories are stored on each book. These helpers keep them consistent even
+// when old documents contain "Science", "science", or " Science ".
+function normalizeCategoryName(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function uniqueCategoryNames(values) {
+  const categories = new Map();
+
+  for (const value of values) {
+    const name = normalizeCategoryName(value);
+
+    if (!name) {
+      continue;
+    }
+
+    const key = name.toLowerCase();
+    const current = categories.get(key);
+
+    if (
+      !current ||
+      (current === current.toLowerCase() && name !== name.toLowerCase())
+    ) {
+      categories.set(key, name);
+    }
+  }
+
+  return [...categories.values()].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" })
+  );
+}
+
+async function getCategoryNames() {
+  const values = await bookCollection.distinct("category");
+  return uniqueCategoryNames(values);
+}
+
+async function resolveCategoryName(value) {
+  const name = normalizeCategoryName(value);
+
+  if (!name) {
+    return "";
+  }
+
+  const categories = await getCategoryNames();
+  const existing = categories.find(
+    (category) => category.toLowerCase() === name.toLowerCase()
+  );
+
+  return existing ?? name;
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Matches one category name while ignoring case and repeated whitespace.
+function categoryPattern(name) {
+  const parts = normalizeCategoryName(name).split(" ").map(escapeRegex);
+  return new RegExp(`^\\s*${parts.join("\\s+")}\\s*$`, "i");
+}
+
 //http://localhost:5000/add-book
 
 app.get('/', (req, res)=>{
@@ -38,29 +104,67 @@ app.listen(PORT, ()=>{
 })
 
 //book add
-app.post('/add-book',async(req, res)=>{
-  const data = req.body
- const result = await bookCollection.insertOne(data)
- console.log(result)
-  res.send(result)
+app.post('/add-book', async (req, res) => {
+  try {
+    const data = { ...req.body };
+    const category = await resolveCategoryName(data.category);
+
+    if (!category) {
+      return res.status(400).send({
+        message: "Category is required.",
+      });
+    }
+
+    // The database generates _id; never store one supplied by the client.
+    delete data._id;
+
+    const result = await bookCollection.insertOne({
+      ...data,
+      category,
+    });
+
+    res.status(201).send(result);
+  } catch (error) {
+    console.error("Add book error:", error);
+    res.status(500).send({
+      message: "Failed to add book",
+    });
+  }
 })
 
 app.get('/book', async(req, res)=>{
-  const category = req.query.category
+  try {
+    const category = req.query.category
 
-  if (category) {
-    const result = await bookCollection.find({ category: category }).toArray()
+    if (category) {
+
+      // documents with "science " still appear under "Science".
+      const result = await bookCollection.find({
+        category: categoryPattern(String(category)),
+      }).toArray()
+      return res.send(result)
+    }
+
+    const result = await bookCollection.find().toArray()
     res.send(result)
-    return
+  } catch (error) {
+    console.error("Get books error:", error);
+    res.status(500).send({
+      message: "Failed to get books",
+    })
   }
-
-  const result = await bookCollection.find().toArray()
-  res.send(result)
 })
 
 app.get('/categories', async(req, res)=>{
-  const categories = await bookCollection.distinct('category')
-  res.send(categories.sort())
+  try {
+    const categories = await getCategoryNames()
+    res.send(categories)
+  } catch (error) {
+    console.error("Get categories error:", error);
+    res.status(500).send({
+      message: "Failed to get categories",
+    })
+  }
 })
 
 
@@ -269,21 +373,144 @@ app.delete("/my-books/:id", async (req, res) => {
 
 // Update My Book
 app.put("/my-books/:id", async (req, res) => {
-  const id = req.params.id;
-  const email = req.query.email
+  try {
+    const { id } = req.params;
+    const email = req.query.email;
 
-  const result = await bookCollection.updateOne(
-    {
-       _id: new ObjectId(id),
-      userEmail: email,
-     },
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid book id." });
+    }
 
-    { 
-      $set: req.body,
-     }
-  );
+    if (!email) {
+      return res.status(400).send({ message: "Email is required." });
+    }
 
-  res.send(result);
+    // Only allow editable fields. In particular, never pass _id into $set:
+    // MongoDB rejects updates to the immutable _id field.
+    const allowedFields = [
+      "bookName",
+      "author",
+      "category",
+      "rating",
+      "image",
+      "description",
+      "publishedYear",
+      "availableCopies",
+      "isNewArrival",
+    ];
+
+    const updates = {};
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    for (const field of ["bookName", "author", "image", "description"]) {
+      if (updates[field] !== undefined) {
+        if (typeof updates[field] !== "string") {
+          return res.status(400).send({ message: `${field} must be text.` });
+        }
+
+        updates[field] = updates[field].trim();
+
+        if (!updates[field]) {
+          return res.status(400).send({ message: `${field} is required.` });
+        }
+      }
+    }
+
+    if (updates.category !== undefined) {
+      const category = await resolveCategoryName(updates.category);
+
+      if (!category) {
+        return res.status(400).send({ message: "Category is required." });
+      }
+
+      updates.category = category;
+    }
+
+    if (updates.publishedYear !== undefined) {
+      const year = Number(updates.publishedYear);
+
+      if (
+        !Number.isInteger(year) ||
+        year < 1000 ||
+        year > new Date().getFullYear()
+      ) {
+        return res.status(400).send({
+          message: "Published year is not valid.",
+        });
+      }
+
+      updates.publishedYear = year;
+    }
+
+    if (updates.rating !== undefined) {
+      const rating = Number(updates.rating);
+
+      if (!Number.isFinite(rating) || rating < 0 || rating > 5) {
+        return res.status(400).send({
+          message: "Rating must be between 0 and 5.",
+        });
+      }
+
+      updates.rating = rating;
+    }
+
+    if (updates.availableCopies !== undefined) {
+      const copies = Number(updates.availableCopies);
+
+      if (!Number.isInteger(copies) || copies < 0) {
+        return res.status(400).send({
+          message: "Available copies must be a whole number.",
+        });
+      }
+
+      updates.availableCopies = copies;
+    }
+
+    if (updates.isNewArrival !== undefined) {
+      if (typeof updates.isNewArrival !== "boolean") {
+        return res.status(400).send({
+          message: "New arrival must be true or false.",
+        });
+      }
+    }
+
+    const result = await bookCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+        userEmail: email,
+      },
+      {
+        $set: updates,
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({
+        message: "Book not found or you do not own it.",
+      });
+    }
+
+    const updatedBook = await bookCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    res.send({
+      acknowledged: result.acknowledged,
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+      book: updatedBook,
+    });
+  } catch (error) {
+    console.error("Update book error:", error);
+    res.status(500).send({
+      message: "Failed to update book",
+    });
+  }
 });
 
 //user profile
