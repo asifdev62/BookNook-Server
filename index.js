@@ -27,8 +27,8 @@ const bookCollection = db.collection('book')
 const borrowCollection = db.collection("my-borrows");
 const userCollection = db.collection("user");
 
-// Categories are stored on each book. These helpers keep them consistent even
-// when old documents contain "Science", "science", or " Science ".
+
+
 function normalizeCategoryName(value) {
   if (typeof value !== "string") {
     return "";
@@ -87,7 +87,7 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Matches one category name while ignoring case and repeated whitespace.
+
 function categoryPattern(name) {
   const parts = normalizeCategoryName(name).split(" ").map(escapeRegex);
   return new RegExp(`^\\s*${parts.join("\\s+")}\\s*$`, "i");
