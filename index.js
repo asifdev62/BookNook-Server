@@ -422,8 +422,7 @@ app.put("/my-books/:id", async (req, res) => {
     }
 
     if (updates.category !== undefined) {
-      const category = await resolveCategoryName(updates.category);
-
+      const category = await resolveCategoryName(updates.categor);
       if (!category) {
         return res.status(400).send({ message: "Category is required." });
       }
