@@ -200,7 +200,7 @@ app.get('/categories', async(req, res)=>{
 
 
 //book details
-app.get('/book/:id', verifyUserToken, async(req, res)=>{
+app.get('/book/:id', async(req, res)=>{
   
   const {id} = req.params
   const result = await bookCollection.findOne({_id: new ObjectId(id)})
