@@ -2,6 +2,7 @@ import express from "express"
 import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
 import cors from "cors"
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 
 const app = express()
@@ -27,6 +28,34 @@ const bookCollection = db.collection('book')
 const borrowCollection = db.collection("my-borrows");
 const userCollection = db.collection("user");
 
+
+
+ const verifyUserToken = async (req, res, next) =>{
+  
+  const authHeader = req.headers.authorization
+
+  if(!authHeader){
+    return res.status(401).send({msg: "Unauthorized User!"})
+  }
+
+  const token = authHeader.split(" ")[1]
+
+  if(!token){
+     return res.status(401).send({msg: "Unauthorized User!"})
+  }
+
+  const JWKS = createRemoteJWKSet(new URL('http://localhost:3000/api/auth/jwks'))
+
+
+try{
+   const payload = await jwtVerify(token, JWKS)
+   next()
+
+}catch (error){
+
+  return res.status(500).send({msg: "Internal Server Error!"})
+}
+}
 
 
 function normalizeCategoryName(value) {
@@ -104,7 +133,7 @@ app.listen(PORT, ()=>{
 })
 
 //book add
-app.post('/add-book', async (req, res) => {
+app.post('/add-book', verifyUserToken, async (req, res) => {
   try {
     const data = { ...req.body };
     const category = await resolveCategoryName(data.category);
@@ -115,7 +144,7 @@ app.post('/add-book', async (req, res) => {
       });
     }
 
-    // The database generates _id; never store one supplied by the client.
+  
     delete data._id;
 
     const result = await bookCollection.insertOne({
@@ -138,7 +167,7 @@ app.get('/book', async(req, res)=>{
 
     if (category) {
 
-      // documents with "science " still appear under "Science".
+     
       const result = await bookCollection.find({
         category: categoryPattern(String(category)),
       }).toArray()
@@ -168,12 +197,16 @@ app.get('/categories', async(req, res)=>{
 })
 
 
+
+
 //book details
-app.get('/book/:id',async(req, res)=>{
+app.get('/book/:id', verifyUserToken, async(req, res)=>{
+  
   const {id} = req.params
   const result = await bookCollection.findOne({_id: new ObjectId(id)})
   res.send(result);
 })
+
 
 
 
@@ -249,6 +282,8 @@ app.post("/my-borrows", async (req, res) => {
 });
 
 
+
+
 // My active borrowed books
 app.get("/my-borrows", async (req, res) => {
   try {
@@ -270,6 +305,9 @@ app.get("/my-borrows", async (req, res) => {
     });
   }
 });
+
+
+
 
 // Return borrowed book
 app.put("/my-borrows/:id/return", async (req, res) => {
@@ -358,7 +396,7 @@ app.get('/my-books', async(req, res)=>{
 })
 
 //delete book
-app.delete("/my-books/:id", async (req, res) => {
+app.delete("/my-books/:id", verifyUserToken, async (req, res) => {
   const id = req.params.id;
   const email = req.query.email;
 
@@ -372,7 +410,7 @@ app.delete("/my-books/:id", async (req, res) => {
 
 
 // Update My Book
-app.put("/my-books/:id", async (req, res) => {
+app.put("/my-books/:id", verifyUserToken, async (req, res) => {
   try {
     const { id } = req.params;
     const email = req.query.email;
@@ -385,7 +423,9 @@ app.put("/my-books/:id", async (req, res) => {
       return res.status(400).send({ message: "Email is required." });
     }
 
-    // Only allow editable fields. In particular, never pass _id into $set:
+    
+
+
     // MongoDB rejects updates to the immutable _id field.
     const allowedFields = [
       "bookName",
@@ -422,7 +462,7 @@ app.put("/my-books/:id", async (req, res) => {
     }
 
     if (updates.category !== undefined) {
-      const category = await resolveCategoryName(updates.categor);
+      const category = await resolveCategoryName(updates.category);
       if (!category) {
         return res.status(400).send({ message: "Category is required." });
       }
@@ -512,6 +552,10 @@ app.put("/my-books/:id", async (req, res) => {
   }
 });
 
+
+
+
+
 //user profile
 app.get('/user-profile', async(req, res)=>{
   const email = req.query.email;
@@ -522,7 +566,7 @@ app.get('/user-profile', async(req, res)=>{
 })
 
 //update profile
-app.put("/user-profile", async (req, res) => {
+app.put("/user-profile",async (req, res) => {
   const email = req.query.email;
   const { name, image, phone } = req.body;
 
